@@ -1,0 +1,90 @@
+#!/bin/bash
+# clank-list - Interactive fzf file picker for clank workspace
+# Usage: clank-list <directory> <window-name> <label> [filter]
+# Loops forever, showing fzf picker with auto-refresh. On selection, calls clank-launch.
+
+DIR="$1"
+WINDOW="$2"
+LABEL="$3"
+FILTER="${4:-}"
+
+if [ -z "$DIR" ] || [ -z "$WINDOW" ] || [ -z "$LABEL" ]; then
+  echo "Usage: clank-list <directory> <window-name> <label> [filter]"
+  exit 1
+fi
+
+mkdir -p "$DIR"
+
+# Determine item name for empty state message
+case "$WINDOW" in
+  ideate)  ITEM_NAME="ideas" ;;
+  plan)    ITEM_NAME="ideas" ;;
+  execute) ITEM_NAME="plans" ;;
+  *)       ITEM_NAME="files" ;;
+esac
+
+# Build the reload command
+RELOAD_CMD="clank-list-entries '$DIR' '$WINDOW' '$FILTER'"
+
+while true; do
+  clear
+  echo "── $LABEL ──"
+  echo ""
+
+  # Check for empty state (ignoring __NEW__ entry)
+  INITIAL=$(eval "$RELOAD_CMD")
+  REAL_FILES=$(echo "$INITIAL" | grep -v '^__NEW__' | grep -v '^$' | grep -v '^\s*$')
+  if [ -z "$REAL_FILES" ] && [ "$WINDOW" != "ideate" ]; then
+    echo "  No $ITEM_NAME created yet."
+    echo ""
+    # Wait briefly then auto-retry
+    sleep 5
+    continue
+  fi
+
+  # Pick a random port for fzf --listen
+  FZF_PORT=$((10000 + RANDOM % 50000))
+
+  # Background auto-reloader: sends reload every 60 seconds
+  (
+    while true; do
+      sleep 60
+      curl -s "localhost:$FZF_PORT" -d "reload($RELOAD_CMD)" >/dev/null 2>&1 || break
+    done
+  ) &
+  RELOADER_PID=$!
+
+  # Build fzf args array
+  FZF_ARGS=(
+    --ansi
+    --delimiter=$'\t'
+    --with-nth=2
+    --header="$LABEL · Ctrl-C to refresh"
+    --listen "$FZF_PORT"
+  )
+
+  # Build preview command based on window type
+  if [ "$WINDOW" = "ideate" ]; then
+    FZF_ARGS+=(--no-preview)
+  elif [ "$WINDOW" = "plan" ]; then
+    FZF_ARGS+=(--preview 'F={1}; [[ "$F" == linear:* ]] && clank-linear-preview "$(echo "$F" | cut -d: -f2-)" && exit 0; LIN=$(grep "^linear:" "$F" 2>/dev/null | head -1 | sed "s/^linear: *//"); if [ -n "$LIN" ]; then clank-linear-preview "$LIN"; else bat --color=always --theme=ansi --style=plain --language=md --wrap=character --terminal-width=$FZF_PREVIEW_COLUMNS "$F"; fi' --preview-window 'right:50%:wrap')
+  else
+    FZF_ARGS+=(--preview 'F={1}; [[ "$F" == linear:* ]] && clank-linear-preview "$(echo "$F" | cut -d: -f2-)" && exit 0; bat --color=always --theme=ansi --style=plain --language=md --wrap=character --terminal-width=$FZF_PREVIEW_COLUMNS "$F"' --preview-window 'right:50%:wrap')
+  fi
+
+  SELECTED=$(echo "$INITIAL" \
+    | fzf "${FZF_ARGS[@]}" \
+    | cut -f1)
+
+  # Clean up reloader
+  kill "$RELOADER_PID" 2>/dev/null
+  wait "$RELOADER_PID" 2>/dev/null
+
+  if [ "$SELECTED" = "__NEW__" ]; then
+    clank-launch "__NEW__" "$WINDOW"
+  elif [ -n "$SELECTED" ]; then
+    clank-launch "$SELECTED" "$WINDOW"
+  fi
+
+  sleep 0.5
+done
