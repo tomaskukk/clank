@@ -1,0 +1,32 @@
+#!/bin/bash
+# clank-linear-start - Move a Linear issue to "In Progress" and assign to me
+# Usage: clank-linear-start <ISSUE-ID>
+
+ID="$1"
+[ -z "$ID" ] && exit 1
+[ -z "$LINEAR_API_KEY" ] && exit 1
+
+QUERY='{ "query": "{ viewer { id } issue(id: \"'"$ID"'\") { id team { states { nodes { id name type } } } } }" }'
+
+RESPONSE=$(curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: $LINEAR_API_KEY" \
+  -d "$QUERY" 2>/dev/null)
+
+ISSUE_UUID=$(echo "$RESPONSE" | jq -r '.data.issue.id // empty')
+VIEWER_ID=$(echo "$RESPONSE" | jq -r '.data.viewer.id // empty')
+STATE_ID=$(echo "$RESPONSE" | jq -r '
+  [.data.issue.team.states.nodes[]
+   | select(.type == "started")]
+  | (map(select(.name | ascii_downcase | contains("progress"))) | first // .[0])
+  | .id // empty
+')
+
+[ -z "$ISSUE_UUID" ] && exit 1
+
+MUTATION='{ "query": "mutation { issueUpdate(id: \"'"$ISSUE_UUID"'\", input: { stateId: \"'"$STATE_ID"'\", assigneeId: \"'"$VIEWER_ID"'\" }) { success } }" }'
+
+curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: $LINEAR_API_KEY" \
+  -d "$MUTATION" >/dev/null 2>&1
