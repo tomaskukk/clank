@@ -1,0 +1,53 @@
+#!/bin/bash
+# clank - Superpowers workspace launcher
+# Creates a tmux session with 4 windows: Ideate -> Plan -> Execute -> Verify PR
+
+source "$(dirname "$0")/clank-config"
+
+# Ensure directories exist
+mkdir -p "$CLANK_IDEAS_DIR" "$CLANK_PLANS_DIR"
+
+# Kill existing session if any
+tmux kill-session -t "$CLANK_SESSION" 2>/dev/null
+
+# Helper: create a window with list pane (left 50%) and claude pane (right 50%)
+create_window() {
+  local name="$1"
+  local list_cmd="$2"
+  local claude_cmd="$3"
+
+  if [ "$name" = "ideate" ]; then
+    tmux new-session -d -s "$CLANK_SESSION" -n "$name" -c "$CLANK_WORK_DIR"
+  else
+    tmux new-window -t "$CLANK_SESSION" -n "$name" -c "$CLANK_WORK_DIR"
+  fi
+
+  tmux send-keys -t "$CLANK_SESSION:$name" "$list_cmd" C-m
+
+  if [ -n "$claude_cmd" ]; then
+    tmux split-window -t "$CLANK_SESSION:$name" -h -l 50% -c "$CLANK_WORK_DIR" "$claude_cmd"
+  else
+    tmux split-window -t "$CLANK_SESSION:$name" -h -l 50% -c "$CLANK_WORK_DIR"
+  fi
+
+  tmux select-pane -t "$CLANK_SESSION:$name.1"
+}
+
+create_window "ideate" \
+  "clank-list '$CLANK_IDEAS_DIR' ideate 'Ideas'" \
+  "claude '/clank:ideate'"
+
+create_window "plan" \
+  "clank-list '$CLANK_IDEAS_DIR' plan 'Ideas -> Plans'" \
+  ""
+
+create_window "execute" \
+  "clank-list '$CLANK_PLANS_DIR' execute 'Plans -> Execute'" \
+  ""
+
+create_window "verify" \
+  "clank-verify" \
+  "claude"
+
+tmux select-window -t "$CLANK_SESSION:ideate"
+tmux attach -t "$CLANK_SESSION"
