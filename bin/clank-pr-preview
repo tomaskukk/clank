@@ -1,0 +1,38 @@
+#!/bin/bash
+# clank-pr-preview - Rich fzf preview for a GitHub PR
+# Usage: clank-pr-preview <PR-NUMBER>
+
+PR="$1"
+[ -z "$PR" ] && exit 0
+
+B='\033[1m'
+D='\033[2m'
+C='\033[36m'
+G='\033[32m'
+R='\033[31m'
+Y='\033[33m'
+N='\033[0m'
+
+JSON=$(gh pr view "$PR" --json body,mergeable,reviewDecision,additions,deletions,headRefName 2>/dev/null)
+if [ -z "$JSON" ]; then
+  echo "Could not load PR details"
+  exit 0
+fi
+
+MERGEABLE=$(echo "$JSON" | jq -r '.mergeable')
+BRANCH=$(echo "$JSON" | jq -r '.headRefName')
+ADDS=$(echo "$JSON" | jq -r '.additions')
+DELS=$(echo "$JSON" | jq -r '.deletions')
+REVIEW=$(echo "$JSON" | jq -r '.reviewDecision // "PENDING"')
+[ "$REVIEW" = "null" ] || [ -z "$REVIEW" ] && REVIEW="PENDING"
+BODY=$(echo "$JSON" | jq -r '.body')
+
+if [ "$MERGEABLE" = "CONFLICTING" ]; then
+  printf "${B}${R}!! HAS MERGE CONFLICTS${N}\n"
+  printf "${D}%s${N}\n" "$(printf '─%.0s' {1..40})"
+fi
+
+printf "${B}${C}Branch:${N} %s  ${G}+%s${N} ${R}-%s${N}  ${Y}Review: %s${N}\n" "$BRANCH" "$ADDS" "$DELS" "$REVIEW"
+printf "${D}%s${N}\n\n" "$(printf '─%.0s' {1..40})"
+
+echo "$BODY" | bat --color=always --theme=ansi --style=plain --language=md --wrap=character --terminal-width="${FZF_PREVIEW_COLUMNS:-80}"
