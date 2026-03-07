@@ -1,0 +1,129 @@
+#!/bin/bash
+# clank-verify - Live PR status dashboard for clank workspace
+# Polls all your open PRs via gh CLI and shows CI status.
+# Select a PR to launch claude with /verify-pr.
+# Must be run from inside a git repo (clank sets cwd to project dir).
+
+source "$(dirname "$0")/clank-config"
+
+POLL_INTERVAL=30
+
+# Get CI status for a branch+commit via Buildkite
+get_ci_status() {
+  local branch="$1"
+  local commit="$2"
+  local json
+  json=$(bk build list --branch "$branch" -o json 2>/dev/null)
+  if [ -z "$json" ] || [ "$json" = "null" ] || [ "$json" = "[]" ]; then
+    echo "unknown"
+    return
+  fi
+
+  # Find the build matching the PR's HEAD commit
+  local state
+  if [ -n "$commit" ]; then
+    state=$(echo "$json" | jq -r --arg c "$commit" '[.[] | select(.commit == $c)][0].state // empty')
+  fi
+  # Fall back to latest build if no commit match
+  if [ -z "$state" ]; then
+    state=$(echo "$json" | jq -r '.[0].state // empty')
+  fi
+
+  case "$state" in
+    passed)                          echo "passing";;
+    failed|broken|canceling|canceled) echo "failing";;
+    running|scheduled|creating)       echo "running";;
+    blocked)                          echo "blocked";;
+    ""|not_run|null)                  echo "no checks";;
+    *)                                echo "unknown";;
+  esac
+}
+
+status_icon() {
+  case "$1" in
+    passing)     echo "✅";;
+    failing)     echo "❌";;
+    running)     echo "⏳";;
+    blocked)     echo "🔒";;
+    "no checks") echo "➖";;
+    unknown)     echo "❓";;
+    *)           echo "❓";;
+  esac
+}
+
+while true; do
+  clear
+  echo "── Verify PRs ──"
+  echo ""
+  echo "  Fetching your open PRs..."
+
+  # Get open PRs: number, title, branch, url, commit
+  PR_LIST=$(gh pr list --author "@me" --state open \
+    --json number,title,headRefName,url,headRefOid \
+    --template '{{range .}}{{.number}}	{{.title}}	{{.headRefName}}	{{.url}}	{{.headRefOid}}
+{{end}}' 2>&1)
+
+  if [ -z "$PR_LIST" ] || echo "$PR_LIST" | grep -qi "failed\|error\|fatal"; then
+    clear
+    echo "── Verify PRs ──"
+    echo ""
+    echo "  No open PRs found for your account."
+    echo ""
+    echo "  Press Enter to refresh..."
+    read -r
+    continue
+  fi
+
+  clear
+  echo "── Verify PRs ──"
+  echo ""
+  echo "  Checking CI status..."
+
+  # Fetch all CI statuses in parallel
+  TMPDIR_CI=$(mktemp -d)
+  while IFS=$'\t' read -r number title branch url commit; do
+    [ -z "$number" ] && continue
+    (
+      ci=$(get_ci_status "$branch" "$commit")
+      icon=$(status_icon "$ci")
+      printf "%s\t%s %-10s #%s %s  (%s)" "$number" "$icon" "$ci" "$number" "$title" "$branch" \
+        > "$TMPDIR_CI/$number"
+    ) &
+  done <<< "$PR_LIST"
+  wait
+
+  # Collect results
+  DISPLAY_LINES=""
+  for f in "$TMPDIR_CI"/*; do
+    [ -f "$f" ] || continue
+    DISPLAY_LINES="${DISPLAY_LINES}$(cat "$f")
+"
+  done
+  rm -rf "$TMPDIR_CI"
+
+  clear
+  echo "── Verify PRs ──"
+  echo ""
+
+  # Background timer: kill fzf after POLL_INTERVAL to trigger auto-refresh
+  (sleep "$POLL_INTERVAL" && pkill -f "fzf.*Select PR to verify" 2>/dev/null) &
+  TIMER_PID=$!
+
+  SELECTED=$(echo "$DISPLAY_LINES" \
+    | grep -v '^$' \
+    | fzf --ansi \
+          --delimiter='\t' \
+          --with-nth=2 \
+          --preview='clank-pr-preview {1}' \
+          --preview-window=right:50%:wrap \
+          --header="Select PR to verify · Auto-refresh in ${POLL_INTERVAL}s · Ctrl-C to refresh now" \
+    | cut -f1)
+
+  # Cancel the background timer (user acted before it fired)
+  kill "$TIMER_PID" 2>/dev/null
+  wait "$TIMER_PID" 2>/dev/null
+
+  if [ -n "$SELECTED" ]; then
+    clank-launch "$SELECTED" verify
+  fi
+done
