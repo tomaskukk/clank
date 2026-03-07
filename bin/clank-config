@@ -1,0 +1,19 @@
+#!/bin/bash
+# clank-config - Shared config loader, sourced by all clank scripts
+# Usage: source clank-config (or source "$(dirname "$0")/clank-config")
+
+CLANK_RC="${CLANK_RC:-$HOME/.clankrc}"
+
+if [ ! -f "$CLANK_RC" ]; then
+  echo "Error: Config file not found: $CLANK_RC"
+  echo "Run install.sh to generate it, or create it manually."
+  exit 1
+fi
+
+source "$CLANK_RC"
+
+# Apply defaults for anything not set
+CLANK_SESSION="${CLANK_SESSION:-clank}"
+CLANK_WORK_DIR="${CLANK_WORK_DIR:-$HOME/dev}"
+CLANK_IDEAS_DIR="${CLANK_IDEAS_DIR:-$HOME/.claude/ideas}"
+CLANK_PLANS_DIR="${CLANK_PLANS_DIR:-$HOME/.claude/plans}"
