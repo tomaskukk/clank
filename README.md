@@ -4,7 +4,7 @@ A tmux-based development workflow that integrates Claude, Linear, GitHub, and fz
 
 - **Ideate** — Capture new ideas and link them to Linear issues
 - **Plan** — Pick Linear tickets, brainstorm, write implementation plans
-- **Execute** — Pick plans, execute them task-by-task with Claude
+- **Execute** — Pick plans, execute them task-by-task
 - **Verify** — Live PR dashboard with CI status, assign reviewers, finalize PRs
 
 ## Prerequisites
