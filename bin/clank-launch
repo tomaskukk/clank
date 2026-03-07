@@ -1,0 +1,96 @@
+#!/bin/bash
+# clank-launch - Create a new pane and launch claude in it
+# Usage: clank-launch <file-path> <window-name>
+#
+# Pane fill order (in the right area, excluding the list pane):
+# 1st: full right area (split from list pane)
+# 2nd: split first work pane vertically (top, bottom)
+# 3rd: split first work pane horizontally (top-left, top-right)
+# 4th: split bottom pane horizontally (bottom-left, bottom-right)
+# 5th+: cycle back to replace first work pane
+
+source "$(dirname "$0")/clank-config"
+
+FILE="$1"
+WINDOW="$2"
+
+if [ -z "$FILE" ] || [ -z "$WINDOW" ]; then
+  echo "Usage: clank-launch <file-path> <window-name>"
+  exit 1
+fi
+
+# Build the claude command based on window type
+build_claude_cmd() {
+  local file="$1"
+  local window="$2"
+
+  case "$window" in
+    ideate)
+      echo "claude '/clank:ideate'"
+      ;;
+    plan)
+      if [[ "$file" == linear:* ]]; then
+        local issue_id="${file#linear:}"
+        clank-linear-start "$issue_id" 2>/dev/null &
+        echo "claude '/clank:writing-plans I want to create a plan for Linear issue $issue_id. Read the issue details using the Linear MCP tools first (get_issue).'"
+      else
+        echo "claude '/clank:writing-plans I want to create a plan from this idea. Read the idea file first: $file.'"
+      fi
+      ;;
+    execute)
+      echo "claude '/clank:executing-plans $file'"
+      ;;
+    verify)
+      echo "claude 'Verify PR #$file. Check CI status with gh pr checks $file, ensure assignee, generate PR description, and request reviewers. Run: gh pr view $file'"
+      ;;
+    *)
+      echo "claude"
+      ;;
+  esac
+}
+
+CLAUDE_CMD=$(build_claude_cmd "$FILE" "$WINDOW")
+
+# Get all pane IDs (unique %id format) for this window
+PANE_IDS=($(tmux list-panes -t "$CLANK_SESSION:$WINDOW" -F '#{pane_id}'))
+PANE_COUNT=${#PANE_IDS[@]}
+
+# First pane is always the list/dashboard pane
+LIST_PANE="${PANE_IDS[0]}"
+
+# Work panes are everything after the first
+WORK_PANES=$((PANE_COUNT - 1))
+
+case "$WORK_PANES" in
+  0)
+    # First work pane: split from list pane, right side gets 75%
+    tmux split-window -t "$LIST_PANE" -h -l 75% "$CLAUDE_CMD"
+    ;;
+  1)
+    # Second: split first work pane vertically (top, bottom)
+    tmux split-window -t "${PANE_IDS[1]}" -v -l 50% "$CLAUDE_CMD"
+    ;;
+  2)
+    # Third: split top work pane horizontally (top-left, top-right)
+    tmux split-window -t "${PANE_IDS[1]}" -h -l 50% "$CLAUDE_CMD"
+    ;;
+  3)
+    # Fourth: split the last pane horizontally (bottom-left, bottom-right)
+    tmux split-window -t "${PANE_IDS[$((PANE_COUNT - 1))]}" -h -l 50% "$CLAUDE_CMD"
+    ;;
+  *)
+    # 5th+: prompt user before replacing first work pane
+    echo "Warning: All pane slots are filled (4 chat sessions active)."
+    echo "To create a new session, one existing pane must be closed."
+    echo ""
+    read -p "Replace the first work pane? [y/N] " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      tmux kill-pane -t "${PANE_IDS[1]}"
+      tmux split-window -t "$LIST_PANE" -h -l 75% "$CLAUDE_CMD"
+    else
+      echo "Cancelled. No panes were modified."
+      exit 0
+    fi
+    ;;
+esac
