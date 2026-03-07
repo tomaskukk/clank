@@ -1,11 +1,11 @@
 ---
 name: clank:ideate
-description: Capture a new idea with a user story and link it to Linear. Use when the user wants to record a feature idea or improvement.
+description: Capture a new idea and create a Linear issue. Use when the user wants to record a feature idea or improvement.
 ---
 
 # Ideate
 
-You are helping the user capture a new idea and link it to Linear.
+You are helping the user capture a new idea and create it as a Linear issue.
 
 ## Process
 
@@ -44,36 +44,29 @@ Present results to the user:
 ### 4. Link or create Linear issue
 
 **If linking to existing:**
-- Note the issue identifier (e.g., PRJ-123)
+- Note the issue identifier (e.g., HUD-123)
 
 **If creating new (only after user confirms):**
-- Create a new Linear issue with the title and description from step 1
-- **Always assign to team HUD**
+- Create a new Linear issue with the title and user story as description
+- **Assign to the team configured in `CLANK_LINEAR_TEAM`** (read from `~/.clankrc`; required — stop and ask the user if not set)
 - Note the new issue identifier
 
-### 5. Write the idea file
+### 5. Ask about current sprint
 
-Create the file at `~/.claude/ideas/YYYY-MM-DD-<slug>.md` where:
-- `YYYY-MM-DD` is today's date
-- `<slug>` is the title lowercased, spaces replaced with hyphens, special chars removed
+Ask the user: "Should I add this to the current sprint?"
 
-Use this exact format:
+**If yes:**
+- Use `list_cycles` with the configured team ID (`CLANK_LINEAR_TEAM` from `~/.clankrc`) and `type: "current"` to get the current cycle
+- Use `list_workflow_states` with the configured team ID to find the workflow state where `type` is `"unstarted"` (this is the "Todo" state). Use that state's **ID** (UUID).
+- Update the issue with `save_issue` setting the `cycle` to the current cycle ID and the `state` to the "unstarted" workflow state **ID**
+- Confirm the issue was added to the sprint in the Todo lane
 
-```yaml
----
-title: <title>
-linear: <issue identifier, e.g. PRJ-123>
-status: idea
-created: <today's date YYYY-MM-DD>
----
-
-## User Story
-<user story>
-```
+**If no:**
+- Leave the issue in the backlog
 
 ### 6. Confirm
 
 Tell the user:
-- The idea file path
-- The Linear issue link
-- Suggest they move to the **plan** window to brainstorm and create an implementation plan
+- The Linear issue identifier and link
+- Whether it was added to the current sprint
+- Suggest they can start planning when ready

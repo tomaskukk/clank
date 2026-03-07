@@ -29,13 +29,9 @@ build_claude_cmd() {
       echo "claude '/clank:ideate'"
       ;;
     plan)
-      if [[ "$file" == linear:* ]]; then
-        local issue_id="${file#linear:}"
-        clank-linear-start "$issue_id" 2>/dev/null &
-        echo "claude '/clank:writing-plans I want to create a plan for Linear issue $issue_id. Read the issue details using the Linear MCP tools first (get_issue).'"
-      else
-        echo "claude '/clank:writing-plans I want to create a plan from this idea. Read the idea file first: $file.'"
-      fi
+      local issue_id="${file#linear:}"
+      clank-linear-start "$issue_id" 2>/dev/null &
+      echo "claude '/clank:brainstorming I want to create a plan for Linear issue $issue_id. Read the issue details using the Linear MCP tools first (get_issue).'"
       ;;
     execute)
       echo "claude '/clank:executing-plans $file'"

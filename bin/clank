@@ -5,7 +5,7 @@
 source "$(dirname "$0")/clank-config"
 
 # Ensure directories exist
-mkdir -p "$CLANK_IDEAS_DIR" "$CLANK_PLANS_DIR"
+mkdir -p "$CLANK_PLANS_DIR"
 
 # Kill existing session if any
 tmux kill-session -t "$CLANK_SESSION" 2>/dev/null
@@ -34,11 +34,11 @@ create_window() {
 }
 
 create_window "ideate" \
-  "clank-list '$CLANK_IDEAS_DIR' ideate 'Ideas'" \
+  "clank-list '$CLANK_PLANS_DIR' ideate 'Ideas'" \
   "claude '/clank:ideate'"
 
 create_window "plan" \
-  "clank-list '$CLANK_IDEAS_DIR' plan 'Ideas -> Plans'" \
+  "clank-list '$CLANK_PLANS_DIR' plan 'Linear Issues -> Plans'" \
   ""
 
 create_window "execute" \
@@ -48,6 +48,9 @@ create_window "execute" \
 create_window "verify" \
   "clank-verify" \
   "claude"
+
+# Playground: single terminal, no fzf
+tmux new-window -t "$CLANK_SESSION" -n "playground" -c "$CLANK_WORK_DIR"
 
 tmux select-window -t "$CLANK_SESSION:ideate"
 tmux attach -t "$CLANK_SESSION"

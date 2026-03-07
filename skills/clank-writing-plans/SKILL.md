@@ -15,7 +15,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** This should be run in a dedicated worktree (created by brainstorming skill).
 
-**Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
+**Save plans to:** `~/.claude/plans/YYYY-MM-DD-<feature-name>.md` (absolute path, never relative `docs/plans/`)
 
 ## Bite-Sized Task Granularity
 
@@ -98,7 +98,7 @@ git commit -m "feat: add specific feature"
 
 After saving the plan, guide the user through review:
 
-**"Plan complete and saved to `docs/plans/<filename>.md`.**
+**"Plan complete and saved to `~/.claude/plans/<filename>.md`.**
 
 **Please review the plan and leave inline comments directly in the plan file for anything you want changed — questions, corrections, missing context, or disagreements. Then come back and tell me:**
 
@@ -106,7 +106,7 @@ After saving the plan, guide the user through review:
 **2. Review comments** — I left comments in the plan, please address them"
 
 **If Accept chosen:**
-- Check if there is a corresponding idea file in `~/.claude/ideas/` (match by Linear issue identifier or title). If found, archive it by moving it to `~/.claude/ideas/archive/` (create the directory if it doesn't exist).
+- **Sync plan to Linear:** If a Linear issue identifier is referenced in the plan, post the full plan content as a comment on that Linear issue using the Linear MCP tools (`create_comment` with the issue ID and the plan markdown as the body). If the Linear MCP tools are not available, warn the user but don't block acceptance.
 - Say: "Plan accepted. Head to the exec window to execute it."
 - Do NOT offer execution approach choices. The exec window handles execution.
 

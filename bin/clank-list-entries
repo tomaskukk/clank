@@ -7,26 +7,11 @@ WINDOW="$2"
 FILTER="${3:-}"
 
 if [ "$WINDOW" = "ideate" ]; then
-  printf "__NEW__\t+ New Idea\n"
+  printf "__NEW__\t+ New Issue\n"
   exit 0
 fi
 
-# List idea/plan files
-find "$DIR" -maxdepth 1 -name '*.md' ! -name '*-design.md' -print0 2>/dev/null \
-  | xargs -0 ls -t 2>/dev/null \
-  | while read -r f; do
-      if [ "$FILTER" = "has-pr" ]; then
-        grep -q '^pr:' "$f" 2>/dev/null || continue
-      fi
-      title=$(grep '^title:' "$f" 2>/dev/null | head -1 | sed 's/^title: *//')
-      linear=$(grep '^linear:' "$f" 2>/dev/null | head -1 | sed 's/^linear: *//')
-      status=$(grep '^status:' "$f" 2>/dev/null | head -1 | sed 's/^status: *//')
-      pr=$(grep '^pr:' "$f" 2>/dev/null | head -1 | sed 's/^pr: *//')
-      name=$(basename "$f")
-      printf "%s\t[%s] %s %s %s\n" "$f" "${status:-?}" "${title:-$name}" "${linear:+($linear)}" "${pr:+PR:$pr}"
-    done
-
-# Plan window: also list Linear "To Do" issues from team active cycle
+# Plan window: list Linear "To Do" issues from team active cycle
 if [ "$WINDOW" = "plan" ] && [ -n "$LINEAR_API_KEY" ]; then
   QUERY='{ "query": "{ viewer { teams { nodes { key activeCycle { issues(filter: { state: { type: { eq: \"unstarted\" } } }, first: 50) { nodes { identifier title } } } } } } }" }'
   curl -s -X POST https://api.linear.app/graphql \
@@ -39,4 +24,21 @@ if [ "$WINDOW" = "plan" ] && [ -n "$LINEAR_API_KEY" ]; then
     (.activeCycle.issues.nodes // [])[] |
     "linear:\(.identifier)\t[To Do] \(.identifier) \(.title) (\($key))"
   ' 2>/dev/null
+fi
+
+# Execute/verify windows: list plan files
+if [ "$WINDOW" = "execute" ] || [ "$WINDOW" = "verify" ]; then
+  find "$DIR" -maxdepth 1 -name '*.md' ! -name '*-design.md' -print0 2>/dev/null \
+    | xargs -0 ls -t 2>/dev/null \
+    | while read -r f; do
+        if [ "$FILTER" = "has-pr" ]; then
+          grep -q '^pr:' "$f" 2>/dev/null || continue
+        fi
+        title=$(grep '^title:' "$f" 2>/dev/null | head -1 | sed 's/^title: *//')
+        linear=$(grep '^linear:' "$f" 2>/dev/null | head -1 | sed 's/^linear: *//')
+        status=$(grep '^status:' "$f" 2>/dev/null | head -1 | sed 's/^status: *//')
+        pr=$(grep '^pr:' "$f" 2>/dev/null | head -1 | sed 's/^pr: *//')
+        name=$(basename "$f")
+        printf "%s\t[%s] %s %s %s\n" "$f" "${status:-?}" "${title:-$name}" "${linear:+($linear)}" "${pr:+PR:$pr}"
+      done
 fi

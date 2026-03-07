@@ -47,7 +47,7 @@ Based on feedback:
 After all tasks complete and verified:
 
 1. **Run the project's test suite** to confirm everything passes
-2. **Find the Linear ticket ID** — check the idea markdown file and/or the plan markdown file for the Linear issue reference (e.g., `RUSH-1234`)
+2. **Find the Linear ticket ID** — check the plan markdown file for the Linear issue reference (e.g., `RUSH-1234`)
 3. **Push the branch:**
    ```bash
    git push -u origin <feature-branch>
