@@ -1,0 +1,60 @@
+#!/bin/bash
+# clank-linear-preview - Fetch and display a single Linear issue for fzf preview
+# Usage: clank-linear-preview <ISSUE-ID>
+
+ID="$1"
+[ -z "$ID" ] && exit 0
+
+PREVIEW_DIR="/tmp/clank-linear-previews"
+mkdir -p "$PREVIEW_DIR"
+CACHE="$PREVIEW_DIR/$ID"
+
+# Use cached preview if fresh (5min TTL)
+if [ -f "$CACHE" ]; then
+  CACHE_AGE=$(($(date +%s) - $(stat -f %m "$CACHE" 2>/dev/null || echo 0)))
+  if [ "$CACHE_AGE" -lt 300 ]; then
+    cat "$CACHE"
+    exit 0
+  fi
+fi
+
+[ -z "$LINEAR_API_KEY" ] && echo "$ID" && exit 0
+
+QUERY="{ \"query\": \"{ issue(id: \\\"$ID\\\") { identifier title description url priority assignee { name } labels { nodes { name } } } }\" }"
+RESPONSE=$(curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: $LINEAR_API_KEY" \
+  -d "$QUERY" 2>/dev/null)
+
+ISSUE=$(echo "$RESPONSE" | jq -r '.data.issue // empty')
+if [ -z "$ISSUE" ] || [ "$ISSUE" = "null" ]; then
+  echo "Could not load issue"
+  exit 0
+fi
+
+IDENT=$(echo "$ISSUE" | jq -r '.identifier // ""')
+TITLE=$(echo "$ISSUE" | jq -r '.title // ""')
+DESC=$(echo "$ISSUE" | jq -r '.description // "No description"')
+ASSIGNEE=$(echo "$ISSUE" | jq -r '.assignee.name // "Unassigned"')
+LABELS=$(echo "$ISSUE" | jq -r '[.labels.nodes[].name] | join(", ")')
+URL=$(echo "$ISSUE" | jq -r '.url // ""')
+
+B=$'\033[1m'
+D=$'\033[2m'
+C=$'\033[36m'
+Y=$'\033[33m'
+M=$'\033[35m'
+N=$'\033[0m'
+LINE=$(printf '%0.s─' {1..40})
+
+{
+  printf '%s%s%s%s  %s%s%s\n' "$B" "$C" "$IDENT" "$N" "$B" "$TITLE" "$N"
+  printf '%s%s%s\n' "$D" "$LINE" "$N"
+  printf '%sAssignee:%s %s\n' "$Y" "$N" "$ASSIGNEE"
+  if [ -n "$LABELS" ]; then
+    printf '%sLabels:%s   %s\n' "$M" "$N" "$LABELS"
+  fi
+  printf '%s%s%s\n' "$D" "$URL" "$N"
+  echo
+  echo "$DESC"
+} | tee "$CACHE"
