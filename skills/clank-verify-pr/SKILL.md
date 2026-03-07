@@ -24,7 +24,13 @@ Extract the owner, repo, and PR number from the `pr:` field.
 
 Run:
 ```bash
-gh pr view <number> --repo <owner/repo> --json title,state,statusCheckRollup,assignees,reviewRequests
+gh pr view <number> --repo <owner/repo> --json title,state,statusCheckRollup,assignees,reviewRequests,body,headRefName,baseRefName,url,author
+```
+
+Also get the commit history and changed files:
+```bash
+gh pr view <number> --repo <owner/repo> --json commits --jq '.commits[].messageHeadline'
+gh pr diff <number> --repo <owner/repo> --name-only
 ```
 
 ### 2. Check CI status
@@ -35,55 +41,65 @@ gh pr checks <number> --repo <owner/repo>
 ```
 
 - If checks are still running: wait 30 seconds, then check again (up to 10 retries)
+- To check only remaining pending/failed: `gh pr checks <number> 2>&1 | grep -E "pending|fail"`
 - If checks pass: proceed to step 3
-- If checks fail: report the failures to the user and stop. Do NOT proceed with review requests on a failing PR.
+- If checks fail: continue with using `check-ci-status` skill
 
-### 3. Ensure assignee
 
-Check if the PR has an assignee. If not, ask the user who should be assigned:
-```bash
-gh pr edit <number> --repo <owner/repo> --add-assignee <username>
-```
+### 3. Ensure clank didn't ship slop
 
-### 4. Generate PR description
+Tell the user to make sure they've reviewed the draft PR well, and ensured it contains no slop.
+
+### 4. Ask who to assign and review
+
+Always ask the user who should be assigned to and review the PR — even if the PR already has assignees. The same person(s) should be set as both assignee and reviewer.
+
+### 5. Generate PR description
 
 Write a concise PR description with this structure:
 
 ```markdown
+closes <LINEAR-ISSUE>
+
 ## Summary
 <2-3 sentences describing what this PR does and why>
 
-## Linear Issue
-<Linear issue identifier and link>
-
 ## Changes
-<Bulleted list of key changes, derived from the plan file>
+<Bulleted list of key changes, derived from the plan file and commit history>
 
 ## Testing
 <How to test, derived from the plan's test steps>
 ```
 
-Update the PR:
+### 6. Apply changes via REST API
+
+**IMPORTANT:** Do NOT use `gh pr edit` for assignees, reviewers, or body — it fails due to GitHub Projects Classic deprecation. Use the REST API instead:
+
+**Update PR body:**
 ```bash
-gh pr edit <number> --repo <owner/repo> --body "<description>"
+gh api repos/<owner>/<repo>/pulls/<number> -X PATCH --input - <<'EOF'
+{"body":"<description>"}
+EOF
 ```
 
-### 5. Request review
-
-Ask the user who should review the PR:
+**Assign users:**
 ```bash
-gh pr edit <number> --repo <owner/repo> --add-reviewer <username>
+gh api repos/<owner>/<repo>/issues/<number>/assignees -X POST --input - <<'EOF'
+{"assignees":["<username1>","<username2>"]}
+EOF
 ```
 
-### 6. Update plan status
-
-Update the plan file's frontmatter to set `status: verified`.
+**Request reviewers:**
+```bash
+gh api repos/<owner>/<repo>/pulls/<number>/requested_reviewers -X POST --input - <<'EOF'
+{"reviewers":["<username1>","<username2>"]}
+EOF
+```
 
 ### 7. Confirm
 
 Tell the user:
 - CI status (passed)
-- Assignee
-- Reviewer(s) requested
+- Assignee(s) and reviewer(s) (same people)
 - PR description updated
 - Link to the PR

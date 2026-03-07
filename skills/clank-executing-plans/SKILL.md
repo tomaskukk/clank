@@ -59,7 +59,7 @@ After all tasks complete and verified:
    Draft PR - pending review"
    ```
    The `closes <LINEAR-TICKET-ID>` line links the PR to the Linear issue.
-5. **Archive the plan:** Update the plan file's frontmatter or move it to indicate it has been executed (e.g., add `status: archived` or rename to `YYYY-MM-DD-<feature-name>.archived.md`).
+5. **Archive the plan:** Move the plan to `~/.claude/plans/archive`.
 6. **Report to user:**
    ```
    All tasks complete. Draft PR created: <PR URL>
