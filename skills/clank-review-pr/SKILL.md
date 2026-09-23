@@ -1,11 +1,11 @@
 ---
 name: clank:review-pr
-description: Review a pull request assigned to me - multi-lens analysis, per-finding verification, terse findings, then a pending GitHub review the human submits. Use when the review window launches with a PR number or the user asks to review a PR.
+description: Review a pull request assigned to me - runs the built-in code-review skill at high effort, rewrites its findings in the house comment style, asks which to post, then creates a pending GitHub review the human submits. Use when the review window launches with a PR number or the user asks to review a PR.
 ---
 
 # Review PR
 
-You are the first-pass reviewer for a pull request the user has been assigned to review. Your job is to surface the few findings a senior engineer would actually act on, prove each one, and hand them to the user as a pending GitHub review they finish themselves.
+You are the first-pass reviewer for a pull request the user has been assigned to review. The built-in `code-review` skill finds and verifies the defects; your job is to turn its findings into the few terse comments a senior engineer would post, ask the user which ones to post, and hand them over as a *pending* GitHub review they finish themselves.
 
 **Announce at start:** "I'm using the review-pr skill to review PR #N."
 
@@ -17,7 +17,9 @@ A PR number. The repo is `CLANK_GH_REPO` from `~/.clankrc` (default `hoxhunt/hox
 
 - **Never submit a review** (Approve / Request Changes / Comment). You create a *pending* review; the user submits.
 - **Never push, commit, amend, rebase, or resolve threads** on the PR. Reviewers do not touch the code under review.
-- **Never check out the PR branch in the user's main checkout.** Read the code in a throwaway worktree.
+- **Never check out the PR branch in the user's main checkout.**
+- **Never let `code-review` post.** Invoke it without `--comment` and without `--fix`. If the loaded variant tries to comment on the PR or edit files, stop it and use only the findings it reported to you.
+- **Nothing leaves the terminal before the human gate in step 5.**
 - **If you are not certain a finding is real, do not report it.** A false positive costs the author a round trip and costs you the user's trust.
 - **Do not report** style, formatting, naming preferences, anything a linter/typechecker/CI catches, hypothetical runtime issues you can't reproduce from the code, or pre-existing problems the PR did not introduce (mention at most one, tagged `[Future]`, only if serious).
 
@@ -27,52 +29,39 @@ A PR number. The repo is `CLANK_GH_REPO` from `~/.clankrc` (default `hoxhunt/hox
 
 ```bash
 gh pr view <N> --repo <repo> --json number,title,body,author,isDraft,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,reviewDecision,url
-gh pr diff <N> --repo <repo>
 gh pr diff <N> --repo <repo> --name-only
 gh api repos/<owner>/<repo>/pulls/<N>/comments
 gh api repos/<owner>/<repo>/issues/<N>/comments
 gh pr view <N> --repo <repo> --json reviews
 ```
 
-Read existing threads first. Do not repeat a point someone already made; if a thread is open and you agree, say so in the summary instead of re-raising it.
+Read existing threads first. A point someone already made is not repeated; if that thread is open and you agree, say so in the summary instead of re-raising it.
 
-Read the code at the PR head in an isolated worktree so subagents and LSP see real files:
+Extract the Linear ticket from the body's first line (`Closes X-123` / `part of X-123` / `ref X-123`) and read it with the Linear MCP `get_issue` when available. A change that does what the ticket asks is not a bug because you'd have designed it differently.
+
+### 2. Review
+
+Invoke the built-in skill at high effort against the PR number:
 
 ```text
-EnterWorktree({name: "review-<N>"})
-git fetch origin <headRefName>
-git reset --hard origin/<headRefName>
+Skill({ skill: "code-review", args: "high <N>" })
 ```
 
-Read-only. When done, `ExitWorktree({action: "remove"})`. Tell every subagent the worktree path and that it must read only from there.
+No `--comment`, no `--fix`. Let it run to completion and take its verified findings as your candidate list. Do not launch your own lens or verifier agents; `code-review` has already done that work.
 
-### 2. Understand intent
+If it reports nothing, the report in step 4 says so and the recommendation is **Approve**.
 
-- Extract the Linear ticket from the body's first line (`Closes X-123` / `part of X-123` / `ref X-123`). Read it with the Linear MCP `get_issue`. If MCP is unavailable, continue without it and say so in the report.
-- Write a 2–3 sentence statement of what the PR is meant to do. Every later finding is judged against this — a change that does what the ticket asks is not a bug because you'd have designed it differently.
-- Note PR hygiene as facts for the summary, not as findings: hand-written lines vs the ~200-line benchmark (exclude generated code, lockfiles, snapshots), missing ticket link, empty body, unrelated changes bundled in.
+### 3. Triage
 
-### 3. Lenses (parallel subagents)
+For each finding `code-review` returned:
 
-Launch these in one message, each with: the intent statement, the diff, the changed-file list, the worktree path, and the instruction "read surrounding code before claiming anything; return candidates only, each with `file:line`, the concrete failing input or scenario, and a confidence 1–10; return an empty list if nothing is certain."
+- Drop it if it violates a hard rule above, duplicates an existing thread, or you cannot point at a `file:line` and a concrete failing input after reading the cited code yourself.
+- Classify it: **Blocking** (wrong behaviour, data loss, security, breaks the ticket's intent), **Suggestion** (real defect or gap the author should fix but the PR works without it), `[Nit]` (true, trivial, one sentence), `[Question]` (only when you genuinely don't know), `[Future]` (pre-existing, at most one).
+- Rewrite it in the comment style of step 6. The finding text you print is the exact text that will be posted.
 
-| Lens | Looks for |
-| --- | --- |
-| **Design** | Does the change fit the existing architecture and the AGENTS.md of the touched directories? New concept where an existing one fits? Duplicates a helper that already exists in the package? |
-| **Functionality** | Wrong results, off-by-one, null/undefined paths, race conditions, unhandled branches, broken invariants, behaviour that contradicts the ticket. |
-| **Tests** | Behavioural coverage of the new paths, not line coverage. Missing negative case for a new guard. Tests that pass without exercising the change. Test descriptions must start with `should`. |
-| **Silent failures** | Catch blocks that swallow, `.catch(() => {})`, unawaited promises, errors logged and ignored where the caller needs to know, fallbacks that hide misconfiguration. |
-| **Security** | Input validation at boundaries, authz on new handlers/resolvers, tenant scoping on queries, secrets, PII in logs, injection. If the diff touches auth/authz, crypto, data-access controls, external API surface, infra (Terraform, CI, deploy), or secrets handling, invoke `/security-review` in addition — CODE_REVIEW.md requires that depth. |
+Note PR hygiene as facts for the summary, not as findings: hand-written lines vs the ~200-line benchmark (exclude generated code, lockfiles, snapshots), missing ticket link, empty body, unrelated changes bundled in.
 
-Skip a lens that obviously does not apply (a docs-only PR needs no tests lens). Skip all lenses for lockfile-only or generated-only diffs and report "nothing to review".
-
-### 4. Verify
-
-For every candidate with confidence ≥ 6, launch a verifier subagent (parallel, one per candidate) with the candidate, the diff, and the worktree path. Its only question: **"Is this real? Confirm with a `file:line` citation and the concrete input that triggers it, or reject."** It must read the cited code, not reason from names.
-
-Keep findings the verifier confirms at ≥ 8/10. Drop the rest without mention. Merge duplicates across lenses. Rank: blocking first, then by blast radius.
-
-### 5. Report
+### 4. Report
 
 Print this, nothing before it:
 
@@ -102,6 +91,10 @@ Good: <one sentence on what is well done — concrete, or omit the line>.
 ```
 
 Omit empty sections. List at most 5 nits; if more, end the Nits section with "plus N similar". Recommendation rules from CODE_REVIEW.md: **Request Changes** only when a blocking finding exists; **Approve** when everything left is nit/question/future and the PR improves code health; **Comment** when you have a real concern you can't confirm as blocking.
+
+### 5. Human gate — always
+
+Always ask, even when there is a single finding and even when there are none worth posting (then the only option is the summary body). Use `AskUserQuestion` with `multiSelect: true`, one option per finding, in report order. Each option's label is the severity prefix plus the `file:line`; its description is the exact comment text that would be posted, so the user is choosing between concrete comments, not categories. Mark blocking and suggestion options `(Recommended)`; nits, questions and future are unmarked. Wait for the answer. Post nothing before it. If the user picks nothing, stop after step 7's "nothing posted" line.
 
 ### 6. Comment style (applies to the report and to everything posted)
 
@@ -140,11 +133,7 @@ I noticed that it might be worth considering whether the null check here could p
 Great job on this! One minor thing — you might want to look at the error handling.
 ```
 
-### 7. Human gate
-
-Ask the user which findings to post (default: all blocking + suggestions; nits and questions only if the user says so). Wait for the answer. Do not post anything before it.
-
-### 8. Create the pending review
+### 7. Create the pending review
 
 Check for an existing pending review first — GitHub allows one per user per PR:
 
@@ -154,7 +143,7 @@ gh api repos/<owner>/<repo>/pulls/<N>/reviews --jq '.[] | select(.state == "PEND
 
 If one exists, stop and tell the user to submit or discard it in GitHub before you can create another.
 
-Inline comments must anchor to a line that exists in the diff on the `RIGHT` side. A finding whose line is not in the diff goes into the review body instead.
+Inline comments must anchor to a line that exists in the diff on the `RIGHT` side. A finding whose line is not in the diff is anchored to the nearest changed line it is about when one exists; otherwise it goes into the review body. A review with only a body shows no draft markers in Files changed, so tell the user it is in the **Review changes** popover.
 
 Write the payload with the Write tool to `~/Library/Caches/claude/review-<N>.json` (no `event` key — that is what keeps it pending):
 
@@ -174,12 +163,10 @@ Then:
 gh api repos/<owner>/<repo>/pulls/<N>/reviews --method POST --input /Users/<user>/Library/Caches/claude/review-<N>.json --jq '.id, .state'
 ```
 
-### 9. Confirm
+### 8. Confirm
 
 Tell the user, in four lines or fewer:
 - pending review created (id) with `<k>` inline comments, or "nothing posted" if they declined
 - your recommendation
-- the PR URL — they open **Files changed → Finish your review**, edit, pick Approve / Comment / Request Changes, submit
-- any lens you skipped or MCP you could not reach
-
-Then `ExitWorktree({action: "remove"})`.
+- the PR URL — they open **Files changed → Finish your review** (or **Review changes** for a body-only review), edit, pick Approve / Comment / Request Changes, submit
+- anything you could not reach (Linear MCP, `code-review` skill unavailable)

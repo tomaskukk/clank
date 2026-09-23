@@ -6,7 +6,7 @@ A tmux-based development workflow that integrates Claude, Linear, GitHub, and fz
 - **Plan** — Pick Linear tickets, brainstorm, write implementation plans
 - **Execute** — Pick plans, execute them task-by-task
 - **Verify** — Live dashboard of your own open PRs with CI status, assign reviewers, finalize PRs
-- **Review** — Live dashboard of open PRs assigned to you for review; select one to run a verified, terse review that ends in a pending GitHub review you submit yourself
+- **Review** — Live dashboard of open PRs assigned to you for review. Every non-draft PR is reviewed automatically once, one new session per refresh; select a PR to review it again. Reviews end in a pending GitHub review you submit yourself
 
 ## Prerequisites
 
@@ -46,7 +46,12 @@ CLANK_SESSION="clank"              # tmux session name
 CLANK_PLANS_DIR="$HOME/.claude/plans"
 CLANK_CLAUDE_CMD="claude --permission-mode auto"  # How Claude is launched in every pane
 CLANK_GH_REPO="hoxhunt/hox"        # Repo the review window lists PRs from
+CLANK_STATE_DIR="$HOME/.local/state/clank"  # Holds `reviewed`: one "number<TAB>sha<TAB>timestamp" line per auto-reviewed PR
 ```
+
+### Reviewed-PR state
+
+The review window records every PR it has launched a review for in `$CLANK_STATE_DIR/reviewed`, so a PR is reviewed automatically only once. To have a PR picked up again, delete its line from that file (or pick it manually from the list, which always launches).
 
 ### LINEAR_API_KEY
 
