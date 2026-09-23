@@ -8,49 +8,6 @@ source "$(dirname "$0")/clank-config"
 
 POLL_INTERVAL=30
 
-# Get CI status for a branch+commit via Buildkite
-get_ci_status() {
-  local branch="$1"
-  local commit="$2"
-  local json
-  json=$(bk build list --branch "$branch" -o json 2>/dev/null)
-  if [ -z "$json" ] || [ "$json" = "null" ] || [ "$json" = "[]" ]; then
-    echo "unknown"
-    return
-  fi
-
-  # Find the build matching the PR's HEAD commit
-  local state
-  if [ -n "$commit" ]; then
-    state=$(echo "$json" | jq -r --arg c "$commit" '[.[] | select(.commit == $c)][0].state // empty')
-  fi
-  # Fall back to latest build if no commit match
-  if [ -z "$state" ]; then
-    state=$(echo "$json" | jq -r '.[0].state // empty')
-  fi
-
-  case "$state" in
-    passed)                          echo "passing";;
-    failed|broken|canceling|canceled) echo "failing";;
-    running|scheduled|creating)       echo "running";;
-    blocked)                          echo "blocked";;
-    ""|not_run|null)                  echo "no checks";;
-    *)                                echo "unknown";;
-  esac
-}
-
-status_icon() {
-  case "$1" in
-    passing)     echo "✅";;
-    failing)     echo "❌";;
-    running)     echo "⏳";;
-    blocked)     echo "🔒";;
-    "no checks") echo "➖";;
-    unknown)     echo "❓";;
-    *)           echo "❓";;
-  esac
-}
-
 while true; do
   clear
   echo "── Verify PRs ──"
@@ -84,8 +41,7 @@ while true; do
   while IFS=$'\t' read -r number title branch url commit; do
     [ -z "$number" ] && continue
     (
-      ci=$(get_ci_status "$branch" "$commit")
-      icon=$(status_icon "$ci")
+      IFS=$'\t' read -r icon ci < <(clank-ci-status "$branch" "$commit")
       printf "%s\t%s %-10s #%s %s  (%s)" "$number" "$icon" "$ci" "$number" "$title" "$branch" \
         > "$TMPDIR_CI/$number"
     ) &

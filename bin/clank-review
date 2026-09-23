@@ -1,0 +1,101 @@
+#!/bin/bash
+# clank-review - Live dashboard of open PRs assigned to me, for reviewing
+# Polls gh for PRs where I am the assignee and shows CI status.
+# Select a PR to launch claude with the clank:review-pr skill.
+
+source "$(dirname "$0")/clank-config"
+
+POLL_INTERVAL=30
+FZF_HEADER="Select PR to review"
+
+while true; do
+  clear
+  echo "── Review PRs ──"
+  echo ""
+  echo "  Fetching PRs assigned to you in $CLANK_GH_REPO..."
+
+  PR_LIST=$(gh pr list --repo "$CLANK_GH_REPO" --state open --assignee @me --limit 100 \
+    --json number,title,headRefName,headRefOid,isDraft,reviewDecision,author \
+    --jq '.[] | [
+      .number,
+      .title,
+      .headRefName,
+      .headRefOid,
+      (if .isDraft then "draft" else "-" end),
+      (if (.reviewDecision // "") == "" then "-" else .reviewDecision end),
+      .author.login
+    ] | @tsv' 2>&1)
+
+  if [ -z "$PR_LIST" ] || echo "$PR_LIST" | grep -qi "^error\|failed\|fatal\|forbidden"; then
+    clear
+    echo "── Review PRs ──"
+    echo ""
+    if [ -z "$PR_LIST" ]; then
+      echo "  No open PRs assigned to you in $CLANK_GH_REPO."
+    else
+      echo "  Could not list PRs:"
+      echo "$PR_LIST" | sed 's/^/    /'
+    fi
+    echo ""
+    echo "  Press Enter to refresh..."
+    read -r
+    continue
+  fi
+
+  clear
+  echo "── Review PRs ──"
+  echo ""
+  echo "  Checking CI status..."
+
+  TMPDIR_CI=$(mktemp -d)
+  while IFS=$'\t' read -r number title branch commit draft review author; do
+    [ -z "$number" ] && continue
+    (
+      IFS=$'\t' read -r icon ci < <(clank-ci-status "$branch" "$commit")
+      case "$review" in
+        APPROVED)          review_tag="approved";;
+        CHANGES_REQUESTED) review_tag="changes-requested";;
+        REVIEW_REQUIRED)   review_tag="needs-review";;
+        *)                 review_tag="";;
+      esac
+      flags=""
+      [ "$draft" = "draft" ] && flags="${flags}[draft] "
+      [ -n "$review_tag" ] && flags="${flags}[$review_tag] "
+      printf "%s\t%s %-10s #%s %-16s %s%s  (%s)" \
+        "$number" "$icon" "$ci" "$number" "$author" "$flags" "$title" "$branch" \
+        > "$TMPDIR_CI/$number"
+    ) &
+  done <<< "$PR_LIST"
+  wait
+
+  DISPLAY_LINES=""
+  for f in $(ls -r "$TMPDIR_CI"); do
+    DISPLAY_LINES="${DISPLAY_LINES}$(cat "$TMPDIR_CI/$f")
+"
+  done
+  rm -rf "$TMPDIR_CI"
+
+  clear
+  echo "── Review PRs ──"
+  echo ""
+
+  (sleep "$POLL_INTERVAL" && pkill -f "fzf.*$FZF_HEADER" 2>/dev/null) &
+  TIMER_PID=$!
+
+  SELECTED=$(echo "$DISPLAY_LINES" \
+    | grep -v '^$' \
+    | fzf --ansi \
+          --delimiter='\t' \
+          --with-nth=2 \
+          --preview='clank-pr-preview {1}' \
+          --preview-window=right:50%:wrap \
+          --header="$FZF_HEADER · Auto-refresh in ${POLL_INTERVAL}s · Ctrl-C to refresh now" \
+    | cut -f1)
+
+  kill "$TIMER_PID" 2>/dev/null
+  wait "$TIMER_PID" 2>/dev/null
+
+  if [ -n "$SELECTED" ]; then
+    clank-launch "$SELECTED" review
+  fi
+done

@@ -15,7 +15,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** This should be run in a dedicated worktree (created by brainstorming skill).
 
-**Save plans to:** `~/.claude/plans/YYYY-MM-DD-<feature-name>.md` (absolute path, never relative `docs/plans/`)
+**Save plans to:** `~/.claude/plans/YYYY-MM-DD-<feature-name>.md` (absolute path, never relative `docs/plans/`). NEVER overwrite the design doc — always create a separate plan file without the `-design` suffix. Design docs end with `-design.md`, plans do NOT.
 
 ## Bite-Sized Task Granularity
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # clank - Superpowers workspace launcher
-# Creates a tmux session with 4 windows: Ideate -> Plan -> Execute -> Verify PR
+# Creates a tmux session with 5 windows: Ideate -> Plan -> Execute -> Verify PR -> Review PRs (+ Playground)
 
 source "$(dirname "$0")/clank-config"
 
@@ -35,7 +35,7 @@ create_window() {
 
 create_window "ideate" \
   "clank-list '$CLANK_PLANS_DIR' ideate 'Ideas'" \
-  "claude '/clank:ideate'"
+  "$CLANK_CLAUDE_CMD '/clank:ideate'"
 
 create_window "plan" \
   "clank-list '$CLANK_PLANS_DIR' plan 'Linear Issues -> Plans'" \
@@ -47,7 +47,11 @@ create_window "execute" \
 
 create_window "verify" \
   "clank-verify" \
-  "claude"
+  "$CLANK_CLAUDE_CMD"
+
+create_window "review" \
+  "clank-review" \
+  ""
 
 # Playground: single terminal, no fzf
 tmux new-window -t "$CLANK_SESSION" -n "playground" -c "$CLANK_WORK_DIR"

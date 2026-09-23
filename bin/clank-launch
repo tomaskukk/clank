@@ -26,21 +26,24 @@ build_claude_cmd() {
 
   case "$window" in
     ideate)
-      echo "claude '/clank:ideate'"
+      echo "$CLANK_CLAUDE_CMD '/clank:ideate'"
       ;;
     plan)
       local issue_id="${file#linear:}"
       clank-linear-start "$issue_id" 2>/dev/null &
-      echo "claude '/clank:brainstorming I want to create a plan for Linear issue $issue_id. Read the issue details using the Linear MCP tools first (get_issue).'"
+      echo "$CLANK_CLAUDE_CMD '/clank:brainstorming I want to create a plan for Linear issue $issue_id. Read the issue details using the Linear MCP tools first (get_issue).'"
       ;;
     execute)
-      echo "claude '/clank:executing-plans $file'"
+      echo "$CLANK_CLAUDE_CMD '/clank:executing-plans $file'"
       ;;
     verify)
-      echo "claude 'Verify PR #$file. Check CI status with gh pr checks $file, ensure assignee, generate PR description, and request reviewers. Run: gh pr view $file'"
+      echo "$CLANK_CLAUDE_CMD 'Verify PR #$file. Check CI status with gh pr checks $file, ensure assignee, generate PR description, and request reviewers. Run: gh pr view $file'"
+      ;;
+    review)
+      echo "$CLANK_CLAUDE_CMD --model opus '/clank:review-pr $file'"
       ;;
     *)
-      echo "claude"
+      echo "$CLANK_CLAUDE_CMD"
       ;;
   esac
 }

@@ -1,0 +1,33 @@
+#!/bin/bash
+# clank-ci-status - Resolve a PR's Buildkite CI state for dashboard rows
+# Usage: clank-ci-status <branch> [commit]
+# Prints: <icon>\t<state>   e.g. "✅\tpassing"
+
+BRANCH="$1"
+COMMIT="$2"
+
+if [ -z "$BRANCH" ]; then
+  echo "Usage: clank-ci-status <branch> [commit]" >&2
+  exit 1
+fi
+
+json=$(bk build list --branch "$BRANCH" -o json 2>/dev/null)
+
+state=""
+if [ -n "$json" ] && [ "$json" != "null" ] && [ "$json" != "[]" ]; then
+  if [ -n "$COMMIT" ]; then
+    state=$(echo "$json" | jq -r --arg c "$COMMIT" '[.[] | select(.commit == $c)][0].state // empty')
+  fi
+  if [ -z "$state" ]; then
+    state=$(echo "$json" | jq -r '.[0].state // empty')
+  fi
+fi
+
+case "$state" in
+  passed)                           printf '✅\tpassing\n';;
+  failed|broken|canceling|canceled) printf '❌\tfailing\n';;
+  running|scheduled|creating)       printf '⏳\trunning\n';;
+  blocked)                          printf '🔒\tblocked\n';;
+  ""|not_run|null)                  printf '➖\tno checks\n';;
+  *)                                printf '❓\tunknown\n';;
+esac
