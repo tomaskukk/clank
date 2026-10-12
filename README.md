@@ -5,7 +5,7 @@ A tmux-based development workflow that integrates Claude, Linear, GitHub, and fz
 - **Ideate** — Capture new ideas and link them to Linear issues
 - **Plan** — Pick Linear tickets, brainstorm, write implementation plans
 - **Execute** — Pick plans, execute them task-by-task
-- **Verify** — Live dashboard of your own open PRs with CI status, assign reviewers, finalize PRs
+- **Verify** — Live dashboard of your own open PRs with CI status. Select a PR to resolve merge conflicts with its base and fix red CI, pushing to the PR branch
 - **Review** — Live dashboard of open PRs assigned to you for review. Every non-draft PR is reviewed automatically once, one new session per refresh; select a PR to review it again. Reviews end in a pending GitHub review you submit yourself
 
 ## Prerequisites

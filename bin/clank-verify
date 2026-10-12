@@ -1,7 +1,8 @@
 #!/bin/bash
 # clank-verify - Live PR status dashboard for clank workspace
 # Polls all your open PRs via gh CLI and shows CI status.
-# Select a PR to launch claude with /verify-pr.
+# Select a PR to launch claude (opus) with the clank:verify-pr skill,
+# which resolves merge conflicts and fixes red CI on that PR.
 # Must be run from inside a git repo (clank sets cwd to project dir).
 
 source "$(dirname "$0")/clank-config"

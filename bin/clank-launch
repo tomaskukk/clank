@@ -37,7 +37,7 @@ build_claude_cmd() {
       echo "$CLANK_CLAUDE_CMD '/clank:executing-plans $file'"
       ;;
     verify)
-      echo "$CLANK_CLAUDE_CMD 'Verify PR #$file. Check CI status with gh pr checks $file, ensure assignee, generate PR description, and request reviewers. Run: gh pr view $file'"
+      echo "$CLANK_CLAUDE_CMD --model opus '/clank:verify-pr $file'"
       ;;
     review)
       echo "$CLANK_CLAUDE_CMD --model opus '/clank:review-pr $file'"

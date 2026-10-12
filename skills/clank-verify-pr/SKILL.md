@@ -1,105 +1,132 @@
 ---
 name: clank:verify-pr
-description: Verify a completed PR - wait for CI, assign reviewers, write PR description. Use when a plan has been executed and has a PR reference that needs verification and review setup.
+description: Keep one of my own open PRs mergeable - resolve merge conflicts with the base branch and fix red CI, pushing fixes to the PR branch. Use when the verify window launches with a PR number or the user asks to verify, unblock, or get a PR green.
 ---
 
 # Verify PR
 
-You are helping the user verify and finalize a pull request linked to a completed plan.
+You keep a pull request the user authored mergeable. Two jobs, in order:
+
+1. **Conflicts** — if the PR conflicts with its base, rebase and resolve.
+2. **CI** — if CI is red, fix the cause and push until it is green.
+
+Nothing else. No reviewer assignment, no description rewrite, no undrafting.
+
+**Announce at start:** "I'm using the verify-pr skill on PR #N."
 
 ## Input
 
-You receive a plan file path as context. Read the plan file and extract:
-- `pr:` — the PR reference (e.g., `org/repo#42`)
-- `linear:` — the Linear issue reference (e.g., `PRJ-123`)
-- `title:` — the feature title
+A PR number. The repo is `CLANK_GH_REPO` from `~/.clankrc` (default `hoxhunt/hox`). Every `gh` call takes `--repo <repo>`. Run the project's `github-access` skill first if it exists.
 
-If `pr:` is missing from the frontmatter, tell the user this plan doesn't have a PR yet and stop.
+## Hard rules
+
+- **Never touch the user's main checkout.** It may be on the PR branch with uncommitted work, and the user pushes from other sessions. All git work happens in a worktree you create (step 1).
+- **Only push to the PR's head branch**, always with `--force-with-lease`, never `--force`.
+- **Fix only what the PR caused.** A failure that is also red on the base branch is reported, not chased.
+- **Stop and report** when a conflict needs a product decision you cannot infer from both sides, when a CI failure's cause is unclear after reading the logs, or when the same fix fails twice.
+- **No code comments** in fixes; no `git add -A`; stage files by name.
 
 ## Process
 
-### 1. Parse PR reference
+### 1. Gather and enter a worktree
 
-Extract the owner, repo, and PR number from the `pr:` field.
-
-Run:
 ```bash
-gh pr view <number> --repo <owner/repo> --json title,state,statusCheckRollup,assignees,reviewRequests,body,headRefName,baseRefName,url,author
+gh pr view <N> --repo <repo> --json number,title,state,isDraft,url,headRefName,baseRefName,headRefOid,mergeable,mergeStateStatus
 ```
 
-Also get the commit history and changed files:
+If `state` is not `OPEN`, say so and stop.
+
+Create a worktree for the PR branch and point it at the remote head:
+
+```text
+EnterWorktree({ name: "verify-<N>" })
+```
+
 ```bash
-gh pr view <number> --repo <owner/repo> --json commits --jq '.commits[].messageHeadline'
-gh pr diff <number> --repo <owner/repo> --name-only
+git fetch origin <headRefName>
+git reset --hard origin/<headRefName>
+git fetch origin <baseRefName>
 ```
 
-### 2. Check CI status
+Run the project's worktree bootstrap if it exists (`.claude/skills/worktree-setup/scripts/bootstrap-worktree.sh`); pass `--skip-install` unless you will need to run tests or codegen locally. Every later command runs inside this worktree; when spawning subagents, tell them the worktree path. Leave the worktree with `ExitWorktree({ action: "remove" })` at the end.
 
-Poll CI checks until they complete:
+### 2. Job 1 — conflicts
+
+Read `mergeable`. If it is `UNKNOWN`, GitHub is still computing: wait 10 seconds and re-run the `gh pr view` from step 1, up to 6 times.
+
+- `MERGEABLE` → no conflicts. Go to step 3.
+- `CONFLICTING` → rebase.
+
+Prefer the project's `rebase` skill when it exists:
+
+```text
+Skill({ skill: "rebase", args: "<N>" })
+```
+
+It resolves the base (including stacked PRs whose base has merged), rebases, and pushes. Without it, do the same by hand:
+
 ```bash
-gh pr checks <number> --repo <owner/repo>
+git rebase origin/<baseRefName>
 ```
 
-- If checks are still running: wait 30 seconds, then check again (up to 10 retries)
-- To check only remaining pending/failed: `gh pr checks <number> 2>&1 | grep -E "pending|fail"`
-- If checks pass: proceed to step 3
-- If checks fail: continue with using `check-ci-status` skill
+For each conflicted file, read both sides and the commits that produced them before choosing. Keep the intent of the PR and the intent of the base change; a conflict in generated code (lockfiles, `*.gen.ts`, `__generated__`) is resolved by re-running the generator, not by hand-merging. When a resolution would require a product decision you cannot infer, abort the rebase, leave the worktree in place, and report which file and why.
 
+After the rebase:
 
-### 3. Ensure clank didn't ship slop
-
-Tell the user to make sure they've reviewed the draft PR well, and ensured it contains no slop.
-
-### 4. Ask who to assign and review
-
-Always ask the user who should be assigned to and review the PR — even if the PR already has assignees. The same person(s) should be set as both assignee and reviewer.
-
-### 5. Generate PR description
-
-Write a concise PR description with this structure:
-
-```markdown
-closes <LINEAR-ISSUE>
-
-## Summary
-<2-3 sentences describing what this PR does and why>
-
-## Changes
-<Bulleted list of key changes, derived from the plan file and commit history>
-
-## Testing
-<How to test, derived from the plan's test steps>
-```
-
-### 6. Apply changes via REST API
-
-**IMPORTANT:** Do NOT use `gh pr edit` for assignees, reviewers, or body — it fails due to GitHub Projects Classic deprecation. Use the REST API instead:
-
-**Update PR body:**
 ```bash
-gh api repos/<owner>/<repo>/pulls/<number> -X PATCH --input - <<'EOF'
-{"body":"<description>"}
-EOF
+git push origin HEAD:<headRefName> --force-with-lease
 ```
 
-**Assign users:**
+Re-run the `gh pr view` from step 1 and confirm `mergeable` is `MERGEABLE` before moving on. A push restarts CI; step 3 waits for the new build, not the old one.
+
+### 3. Job 2 — CI
+
+Find the build for the current head:
+
 ```bash
-gh api repos/<owner>/<repo>/issues/<number>/assignees -X POST --input - <<'EOF'
-{"assignees":["<username1>","<username2>"]}
-EOF
+gh pr view <N> --repo <repo> --json headRefOid --jq .headRefOid
+bk build list --branch <headRefName> --limit 3 -o json
 ```
 
-**Request reviewers:**
+Use the build whose `commit` matches the head SHA. If there is none yet, wait 30 seconds and look again, up to 10 times. If it is `running`, `scheduled`, or `creating`:
+
 ```bash
-gh api repos/<owner>/<repo>/pulls/<number>/requested_reviewers -X POST --input - <<'EOF'
-{"reviewers":["<username1>","<username2>"]}
-EOF
+bk build watch <BUILD_NUMBER>
 ```
 
-### 7. Confirm
+Then branch on the final state:
 
-Tell the user:
-- CI status (passed)
-- Assignee(s) and reviewer(s) (same people)
-- PR description updated
-- Link to the PR
+- `passed` → done. Go to step 4.
+- `blocked` → done; say the build is waiting on a manual unblock step.
+- `failed`, `broken`, `canceled` → fix.
+
+Prefer the project's `fix-ci-failures` skill when it exists; it reads the logs, classifies the failure, fixes, verifies locally, pushes, and watches the next build:
+
+```text
+Skill({ skill: "fix-ci-failures" })
+```
+
+Without it, read the failed job logs with `bk`, classify, and apply the matching fix:
+
+| Failure | Action |
+| --- | --- |
+| Codegen diff / "not up to date" | Run the generator the log names, commit the output |
+| Lint / prettier | Fix the violations |
+| TypeScript | Fix the type errors |
+| Test | Fix the code or the assertion; if the test is also red on the base branch, report instead |
+| Agent lost / timed out / exit 137 | `bk build rebuild <BUILD_NUMBER>`; no code change |
+| "Wait for ... check" | Dependent step; it resolves with its upstream |
+| Unclear | Stop and report |
+
+Verify each fix locally where the failure type allows it (lint, typecheck, the failing test), commit with the project's conventional-commit format, push with `--force-with-lease` if you rewrote history or a plain push otherwise, and watch the new build. Repeat until it passes. Two consecutive failures of the same step after a fix means stop and report.
+
+### 4. Report
+
+Tell the user, in five lines or fewer:
+
+- conflicts: none / resolved (files touched) / stopped on `<file>` because …
+- CI: green at `<build url>` / stopped because … (with the failing step and the log line that matters)
+- what you pushed: commit subjects, or "nothing pushed"
+- the PR URL
+
+Remove the worktree before reporting, unless you stopped mid-rebase and left it for the user. Then say where it is.
